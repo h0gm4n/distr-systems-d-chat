@@ -12,11 +12,15 @@ env:
   ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
   IMAGE_TAG: ${{ github.sha }}
 
+  AWS_ECR_ACCESS_KEY_ID: ${{ secrets.AWS_ECR_ACCESS_KEY_ID }}
+  AWS_ECR_SECRET_ACCESS_KEY: ${{ secrets.AWS_ECR_SECRET_ACCESS_KEY }}
+
 jobs:
   push-docker-image:
     name: Push Docker Image to AWS ECR
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 20
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v5
@@ -24,8 +28,8 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v5
         with:
-          aws-access-key-id: ${{ secrets.AWS_ECR_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_ECR_SECRET_ACCESS_KEY }}
+          aws-access-key-id: ${{ env.AWS_ECR_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_ECR_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
@@ -47,20 +51,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           
-      - name: Run Trivy Security Scan on Image
-        uses: aquasecurity/trivy-action@0.33.1
-        with:
-          image-ref: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-          exit-code: '0'
-          
-      - name: Upload Trivy Scan Results to GitHub Security Tab
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: 'trivy-results.sarif'
-          
       - name: Push Docker Image to ECR
         uses: docker/build-push-action@v5
         with:
@@ -78,7 +68,47 @@ jobs:
           echo "Image pushed successfully!"
           echo "Image URI: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}"
           echo "Latest URI: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest"
+
+      - name: Verify ECR Image Availability
+        run: |
+          echo "Verifying image is available in ECR..."
+          aws ecr describe-images --repository-name ${{ env.ECR_REPOSITORY }} --image-ids imageTag=${{ env.IMAGE_TAG }} --region ${{ env.AWS_REGION }}
+
+      - name: Run Trivy Security Scan on Remote ECR Image
+        uses: aquasecurity/trivy-action@0.33.1
+        env:
+          AWS_ACCESS_KEY_ID: ${{ env.AWS_ECR_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ env.AWS_ECR_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ env.AWS_REGION }}
+        with:
+          image-ref: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          exit-code: '0'
+          scan-type: 'image'
+          scanners: 'vuln,secret'
+          severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
+          timeout: '10m'
+
+      - name: Display Trivy Scan Summary
+        if: always()
+        run: |
+          echo "Security scan completed for image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}"
+
+          if [ -f "trivy-results.sarif" ]; then
+            echo "SARIF report generated successfully!"
+            echo "File size: $(du -h trivy-results.sarif | cut -f1) bytes."
+          else
+            echo "Warning: SARIF report not found!"
+          fi
           
+      - name: Upload Trivy Scan Results to GitHub Security Tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+          category: 'container-security'
+
       - name: Clean up
         if: always()
         run: |
