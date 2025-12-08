@@ -69,6 +69,19 @@ class ChatState:
         guarantees all nodes apply the same commands in the same order,
         all nodes will trim at the same point and maintain identical state.
         """
+        # Handle room_clear command: remove all chat messages for the specified room
+        if command.get("type") == "room_clear":
+            room = command.get("room", "general")
+            self._log = [
+                m for m in self._log
+                if not (m.get("type") == "chat" and m.get("room", "general") == room)
+            ]
+            # Append the room_clear event itself so clients can react to it
+            self._log.append(command)
+            self._persist()
+            logger.info("Cleared all messages in room '%s'", room)
+            return
+
         # Ensure chat messages include a stable timestamp field for clients
         if command.get("type") == "chat":
             # prefer existing explicit 'timestamp' or 'ts' field, otherwise set now

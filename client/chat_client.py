@@ -15,7 +15,7 @@ MAX_ROOMS = 5
 MAX_MESSAGE_LENGTH = 256
 
 # Debug commands
-DEBUG_COMMANDS = {"/instances", "/leader", "/kill-leader"}
+DEBUG_COMMANDS = {"/instances", "/leader", "/kill-leader", "/clear"}
 
 
 class ChatApp:
@@ -261,6 +261,22 @@ class ChatApp:
                 except requests.exceptions.RequestException as e:
                     # Connection may be lost if leader dies - that's expected
                     self.ui.add_system_message(f"[DEBUG] Kill leader: Request sent (connection lost - leader likely killed)")
+
+            elif command == "/clear":
+                room = self._current_room or "general"
+                cmd = {
+                    "type": "room_clear",
+                    "room": room,
+                    "user": self.username,
+                    "id": str(uuid.uuid4()),
+                }
+                self.ui.add_system_message(f"Clearing all messages in room '{room}'...")
+                resp = post_with_raft_redirects(CLUSTER_URL, cmd)
+                data = resp.json()
+                if data.get("status") == "ok":
+                    self.ui.add_system_message(f"Room '{room}' cleared successfully.")
+                else:
+                    self.ui.add_system_message(f"Failed to clear room: {data}")
                     
             self.ui.set_status(True)
             
@@ -366,6 +382,20 @@ class ChatApp:
                                     self._on_room_change(self._current_room)
                                 else:
                                     self.ui.set_rooms(sorted(self._rooms), select=self._current_room)
+
+                        elif msg_type == "room_clear":
+                            room = m.get("room", "general")
+                            # Remove cleared messages from local seen IDs so they don't block future messages
+                            cleared_ids = {
+                                msg.get("id") for msg in self._all_messages
+                                if msg.get("type") == "chat" and msg.get("room", "general") == room and msg.get("id")
+                            }
+                            self._seen_msg_ids -= cleared_ids
+                            # If we're viewing the cleared room, refresh the display
+                            if room == self._current_room:
+                                self.ui.clear_messages()
+                                user_who_cleared = m.get("user", "Someone")
+                                self.ui.add_system_message(f"Room '{room}' was cleared by {user_who_cleared}.")
 
                         elif msg_type == "chat":
                             # msg_id already retrieved above
