@@ -8,8 +8,8 @@ from tkinter import simpledialog
 from gui import ChatUI
 from client import post_with_raft_redirects, get_with_raft_redirects
 
-# CLUSTER_URL = "http://127.0.0.1:9000" # Local testing
-CLUSTER_URL = "http://DChatALB-596522607.eu-north-1.elb.amazonaws.com"
+CLUSTER_URL = "http://127.0.0.1:9000" # Local testing
+# CLUSTER_URL = "http://DChatALB-596522607.eu-north-1.elb.amazonaws.com"
 
 MAX_ROOMS = 5
 MAX_MESSAGE_LENGTH = 256

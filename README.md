@@ -130,45 +130,36 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
-`requirements.txt` mainly includes:
+`requirements.txt` includes:
 
-* `requests` (used by the client for HTTP)
+* boto3==1.41.5
+* botocore==1.41.5
+* certifi==2025.11.12
+* charset-normalizer==3.4.4
+* idna==3.11
+* jmespath==1.0.1
+* python-dateutil==2.9.0.post0
+* requests==2.32.5
+* s3transfer==0.15.0
+* six==1.17.0
+* urllib3==2.5.0
 
-The server itself uses only the standard library.
 
 ---
 
-## 4. Running the 3-Node Cluster Locally
+## 4. Local testing
 
-In **three separate terminals** (all with the venv activated), run:
-
-### Terminal 1 – node0
+In client/chat_client.py, assign the CLUSTER_URL with the local URL commented above the AWS URL and run:
 
 ```bash
-python server/node.py --id node0 --http-port 9000 --raft-port 10000 \
-  --peers 127.0.0.1:10001,127.0.0.1:10002
+python3 server/node.py --id node0 --http-port 9000 --raft-port 10000 --peers ""
 ```
 
-### Terminal 2 – node1
+In any number of other terminals, run: 
 
 ```bash
-python server/node.py --id node1 --http-port 9001 --raft-port 10001 \
-  --peers 127.0.0.1:10000,127.0.0.1:10002
+python client/chat_client.py
 ```
-
-### Terminal 3 – node2
-
-```bash
-python server/node.py --id node2 --http-port 9002 --raft-port 10002 \
-  --peers 127.0.0.1:10000,127.0.0.1:10001
-```
-
-You should see log lines like:
-
-* `nodeX RAFT listening on 0.0.0.0:<port> (follower)`
-* Then eventually: `nodeX became LEADER for term Y`
-
-Only one node is leader at any time.
 
 ---
 
@@ -343,179 +334,8 @@ The Users list shows **recently active** users:
 
 ---
 
-## 7. RAFT & Client Redirect Logic
 
-### 7.1 RAFT leader tracking
-
-`server/raft.py` tracks a `leader_id`:
-
-* Updated when AppendEntries (heartbeats) arrive from a leader.
-* Set to self when the node wins an election.
-
-`handle_client_command` returns:
-
-* On leader:
-
-  ```json
-  {"status": "ok", "index": N}
-  ```
-
-* On follower:
-
-  ```json
-  {"status": "not_leader", "leader": "<known_leader_id or null>"}
-  ```
-
-### 7.2 HTTP redirect behavior in `server/node.py`
-
-When `/chat` calls `raft.handle_client_command`:
-
-* If `status == "ok"`:
-
-  * Return `200 OK` with JSON body.
-* If `status == "not_leader"`:
-
-  * If `leader` is known:
-
-    * Local dev:
-
-      * Map `leader_id` → HTTP port (`node0→9000`, `node1→9001`, `node2→9002`).
-      * `Location: http://127.0.0.1:<leader_port>/chat`
-    * AWS / ALB:
-
-      * Uses env vars:
-
-        ```bash
-        DCHAT_PUBLIC_HOST="<your-alb-dns>"
-        DCHAT_PUBLIC_SCHEME="https"
-        ```
-
-      * `Location: https://<your-alb-dns>/chat`
-  * If `leader` is **not** known:
-
-    * `302 Found` with **no** `Location` header.
-
-### 7.3 Client redirect helper (`client/client.py`)
-
-`client/client.py` implements:
-
-* `post_with_raft_redirects(base_url, payload, timeout=2.0)` – for `/chat`
-* `get_with_raft_redirects(base_url, path="/messages", timeout=2.0)` – for `/messages`
-
-Behavior:
-
-* Always starts from `base_url` (e.g. `http://127.0.0.1:9000` or `https://your-alb`).
-* Handles:
-
-  * `200 OK` → success.
-  * `302` with Location → follows redirect (absolute or relative), up to `MAX_REDIRECTS`.
-  * `302` without Location → treat as “election in progress”; retry same URL with small backoff until `MAX_ELECTION_WAIT`.
-  * Connection errors or transient `4xx/5xx` (e.g., 404, 500, 502, 503, 504) → reset back to the original `base_url` and retry.
-
-This makes the client resilient to:
-
-* Leader changes.
-* Nodes going up/down.
-* Stale or temporarily wrong leader hints.
-
----
-
-## 8. AWS Deployment (High-Level)
-
-
-### 8.1 EC2 Nodes
-
-For each node:
-
-* Run `server/node.py` with appropriate IDs and ports, e.g.:
-
-  ```bash
-  python server/node.py \
-    --id node-a \
-    --http-port 5000 \
-    --raft-port 6000 \
-    --peers 10.0.1.11:6000,10.0.2.10:6000
-  ```
-
-* Security groups:
-
-  * Allow inbound **HTTP port** (e.g. 5000) from the ALB SG.
-  * Allow inbound **RAFT port** (e.g. 6000) from the *other nodes only* (within VPC).
-
-### 8.2 ALB (Application Load Balancer)
-
-* Target group → points to the nodes’ HTTP port (e.g. 5000).
-* Health check path: `/health`
-* ALB listeners:
-
-  * `HTTP :80` or `HTTPS :443` → forward to target group.
-
-### 8.3 Environment variables for public hostname
-
-On each node, set:
-
-```bash
-export DCHAT_PUBLIC_HOST="my-dchat-alb-123456.eu-north-1.elb.amazonaws.com"
-export DCHAT_PUBLIC_SCHEME="https"
-```
-
-This ensures:
-
-* Any `302` produced by followers will have:
-
-  ```http
-  Location: https://my-dchat-alb-123456.eu-north-1.elb.amazonaws.com/chat
-  ```
-
-* The client always follows redirects back to the ALB (never to private IPs).
-
-### 8.4 Client configuration for AWS
-
-On your laptop / workstation, change in `client/chat_client.py`:
-
-```python
-CLUSTER_URL = "https://my-dchat-alb-123456.eu-north-1.elb.amazonaws.com"
-```
-
-Then run:
-
-```bash
-python client/chat_client.py
-```
-
-
----
-
-## 9. Limitations & Notes
-
-* **Not production-grade RAFT**:
-
-  * No disk persistence of terms/votes/log across restarts.
-  * No log compaction/snapshotting.
-  * Very simple timeout and retry behavior.
-
-* **Users list is heuristic**:
-
-  * It shows users who have produced messages recently.
-  * Users are removed after 5 minutes of inactivity.
-  * There’s no explicit “disconnect” event in HTTP mode.
-
-* **Elections & temporary failures**:
-
-  * During elections or just after node restarts, you may see transient errors:
-
-    * Redirect loops
-    * 404/5xx from nodes that are not fully ready yet
-  * The client is designed to handle most of this gracefully by retrying and returning to the cluster URL.
-
-* **Single-node writes**:
-
-  * If only one node is alive in a 3-node cluster, RAFT will **refuse to commit new messages** (no majority).
-  * This is by design to preserve safety.
-
----
-
-## 10. Quick Troubleshooting
+## 7. Quick Troubleshooting
 
 * **GUI says “Disconnected”**:
 
