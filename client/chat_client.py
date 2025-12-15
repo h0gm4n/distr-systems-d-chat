@@ -98,7 +98,6 @@ class ChatApp:
         try:
             post_with_raft_redirects(CLUSTER_URL, cmd)
         except Exception as e:
-            # Not critical; polling will still track user presence from chat messages
             pass
     
     def _heartbeat_loop(self) -> None:
@@ -259,7 +258,6 @@ class ChatApp:
                     else:
                         self.ui.add_system_message(f"[DEBUG] Kill leader failed: {data}")
                 except requests.exceptions.RequestException as e:
-                    # Connection may be lost if leader dies - that's expected
                     self.ui.add_system_message(f"[DEBUG] Kill leader: Request sent (connection lost - leader likely killed)")
 
             elif command == "/clear":
@@ -391,7 +389,6 @@ class ChatApp:
                                 if msg.get("type") == "chat" and msg.get("room", "general") == room and msg.get("id")
                             }
                             self._seen_msg_ids -= cleared_ids
-                            # If we're viewing the cleared room, refresh the display
                             if room == self._current_room:
                                 self.ui.clear_messages()
                                 user_who_cleared = m.get("user", "Someone")
@@ -447,7 +444,7 @@ class ChatApp:
 
     def _on_close(self) -> None:
         self._polling = False
-        # Notify server of disconnect (best effort)
+        # Notify server of disconnect
         self._send_user_disconnected()
     
     def _send_user_disconnected(self) -> None:
@@ -456,7 +453,7 @@ class ChatApp:
         try:
             post_with_raft_redirects(CLUSTER_URL, cmd, timeout=1.0)
         except Exception:
-            pass  # Best effort - don't block close if server unreachable
+            pass
 
     def run(self) -> None:
         self.ui.run()

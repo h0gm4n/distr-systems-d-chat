@@ -434,7 +434,7 @@ class RaftNode:
             self.state = "candidate"
             self.current_term += 1
             self.voted_for = self.node_id
-            self.leader_id = None  # Clear leader - we're starting an election
+            self.leader_id = None  # Clear leader
             term_started = self.current_term
             votes = 1
 
@@ -474,7 +474,7 @@ class RaftNode:
                         votes += 1
 
         async with self._lock:
-            # If we learned about a higher term, update and step down.
+            # If learned about a higher term, update and step down
             if max_term_from_responses > self.current_term:
                 logger.info(
                     "%s: Saw higher term %d in RequestVote responses (current_term=%d), stepping down",
@@ -497,7 +497,7 @@ class RaftNode:
                     self.node_id, self.current_term, votes
                 )
                 self.state = "leader"
-                self.leader_id = self.node_id  # We are the leader
+                self.leader_id = self.node_id
                 self.last_heartbeat = asyncio.get_event_loop().time()
                 self._failed_elections = 0
                 
@@ -509,7 +509,6 @@ class RaftNode:
                     "%s failed to win election for term %d (votes=%d, failed_elections=%d)",
                     self.node_id, term_started, votes, self._failed_elections
                 )
-                # fallback logic (if you kept it) goes here, otherwise:
                 self.state = "follower"
 
 

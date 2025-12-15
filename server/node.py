@@ -171,7 +171,7 @@ async def start_http_server(port: int, raft: RaftNode, state: ChatState) -> None
             return
 
         if path == "/kill-leader" and method == "POST":
-            # Throttle: reject if election is ongoing
+            # Reject if election is ongoing
             if raft.is_election_ongoing():
                 resp_body = json.dumps({
                     "status": "error",
@@ -189,7 +189,7 @@ async def start_http_server(port: int, raft: RaftNode, state: ChatState) -> None
                 return
 
             if raft.is_leader():
-                # This node is the leader - send response then die
+                # Send response then die
                 resp_body = json.dumps({
                     "status": "ok",
                     "message": f"Leader {raft.node_id} is being killed. New election will start."
@@ -209,7 +209,7 @@ async def start_http_server(port: int, raft: RaftNode, state: ChatState) -> None
                 os._exit(1)
                 return
 
-            # Not the leader - proxy request to leader
+            # Proxy request to leader
             leader_id = raft.get_leader_id()
             if DCHAT_PUBLIC_HOST:
                 # AWS mode: proxy through ALB
@@ -246,7 +246,6 @@ async def start_http_server(port: int, raft: RaftNode, state: ChatState) -> None
                     + resp_body
                 )
             except requests.exceptions.RequestException as e:
-                # Leader probably died during the request - that's expected!
                 resp_body = json.dumps({
                     "status": "ok",
                     "message": f"Leader kill request sent. Connection lost (leader likely terminated): {e}"
@@ -307,8 +306,7 @@ async def start_http_server(port: int, raft: RaftNode, state: ChatState) -> None
                 writer.close()
                 return
 
-            # 2) Not leader: send 302. We *always* use the incoming Host header
-            # (ALB hostname in AWS) so we never leak private RAFT IPs.
+            # 2) Not leader: send 302. Always use the incoming Host header
             if status == "not_leader":
                 leader_known = res.get("leader")
 

@@ -63,8 +63,7 @@ class ChatUI:
         # ---- Users section ----
         lbl = tk.Label(sidebar, text='Users')
         lbl.pack(anchor='nw')
-        # Use a dictionary to map usernames to colors for the listbox
-        # This Listbox needs a custom method to display colors.
+       
         self.user_list = tk.Listbox(sidebar, height=10, exportselection=False)
         self.user_list.pack(side='left', fill='y', expand=False)
         ul_scroll = tk.Scrollbar(sidebar, orient='vertical', command=self.user_list.yview)
@@ -103,10 +102,8 @@ class ChatUI:
         Assigns or retrieves a color and Tkinter tag for a username.
         """
         if username not in self.user_colors:
-            # Simple random assignment, picking from available colors
             available_colors = [c for c in self.COLOR_PALETTE if c not in self.used_colors]
             if not available_colors:
-                # If all colors are used, reset the set or pick randomly from all
                 color = random.choice(self.COLOR_PALETTE)
             else:
                 color = random.choice(available_colors)
@@ -185,7 +182,6 @@ class ChatUI:
         else:
             ts = timestamp
         try:
-            # Need to pass the user for color lookup
             self.root.after(0, lambda: self._add_message_ui(user, message, ts, style))
         except Exception:
             self._add_message_ui(user, message, ts, style)
