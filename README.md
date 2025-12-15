@@ -149,13 +149,13 @@ pip install -r requirements.txt
 
 ## 4. Local testing
 
-In client/chat_client.py, assign the CLUSTER_URL with the local URL commented above the AWS URL and run:
+In client/chat_client.py, assign the CLUSTER_URL with the local URL commented above the AWS URL and from the root of the project, run:
 
 ```bash
 python3 server/node.py --id node0 --http-port 9000 --raft-port 10000 --peers ""
 ```
 
-In any number of other terminals, run: 
+In any number of other terminals, from the root of the project, run: 
 
 ```bash
 python client/chat_client.py
